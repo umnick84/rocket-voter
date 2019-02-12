@@ -1,23 +1,27 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
-#[macro_use] extern crate rocket;
-extern crate rusqlite;
 extern crate chrono;
 extern crate itertools;
+#[macro_use] extern crate rocket;
+extern crate rocket_contrib;
+extern crate rusqlite;
+#[macro_use] extern crate serde_derive;
+extern crate serde_json;
 
+use std::collections::HashMap;
 use std::io;
 use std::sync::Mutex;
 
+use chrono::prelude::Local;
 use itertools::Itertools;
 use rocket::{Rocket, State};
 use rocket::http::RawStr;
 use rocket::request::{Form, FormDataError, FormError};
 use rocket::response::NamedFile;
 use rocket::response::Redirect;
+use rocket_contrib::templates::Template;
 use rusqlite::{Connection, NO_PARAMS};
 use rusqlite::types::ToSql;
-use std::collections::HashMap;
-use chrono::prelude::Local;
 
 type DbConn = Mutex<Connection>;
 
@@ -33,31 +37,50 @@ fn init_database(conn: &Connection) {
     conn.execute("CREATE UNIQUE INDEX u_idx ON vote_results (place, username, date)", NO_PARAMS).expect("");
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 struct Vote {
     username: String,
     place: String,
 }
 
+#[derive(Serialize, Deserialize, Default, Debug)]
+struct TemplateContext<'a> {
+    frequency: &'a str,
+    votes: &'a str,
+    // This key tells handlebars which template is the parent.
+    parent: &'a str,
+}
+
 
 #[get("/results")]
-fn results(db_conn: State<DbConn>) -> String  {
-    let votes = db_conn.lock()
+fn results(db_conn: State<DbConn>) -> Template {
+    let votes: Vec<Vote> = db_conn.lock()
         .expect("db connection lock")
         .prepare("SELECT username, place FROM vote_results") // where date = $1
         .unwrap()
-        .query_map(NO_PARAMS, |row| Vote {
-            username: row.get(0),
-            place: row.get(1)
+        .query_map(NO_PARAMS, |row| {
+            let username: String = row.get(0);
+            let place: String = row.get(1);
+
+            let vote = Vote {
+                username,
+                place
+            };
+
+            vote
         }).unwrap()
         .map(|tv| tv.unwrap()).collect_vec();
 
     let mut frequency: HashMap<&str, u32> = HashMap::new();
-    for word in &votes { // word is a &str
+    for word in &votes {
         *frequency.entry(word.place.as_str()).or_insert(0) += 1;
     }
 
-    format!("{:?} \n\n\n {:?}", frequency, votes)
+    Template::render("results", &TemplateContext {
+        frequency: format!("{:#?}", frequency).as_str(),
+        votes: format!("{:#?}", votes).as_str(),
+        parent: "layout",
+    })
 }
 
 #[derive(Debug, FromForm)]
@@ -67,10 +90,27 @@ struct FormInput<'r> {
     burgerlich: bool,
 }
 
+#[get("/error?<reason>")]
+fn error(reason: String) -> Template {
+    let problem = match reason.as_str() {
+        "no_username" => "You didn't enter username!",
+        "non_ascii" => "You entered non utf-8 character",
+        _ => "Oops. Something went wrong."
+    }.to_string();
+
+    let mut map = std::collections::HashMap::new();
+    map.insert("problem", problem);
+    Template::render("error", &map)
+}
+
 #[post("/vote", data = "<vote_form>")]
 fn vote(vote_form: Result<Form<FormInput>, FormError>, db_conn: State<DbConn>) -> Redirect {
     match vote_form {
         Ok(form) => {
+            if form.username.is_empty() {
+                return Redirect::to("/error?reason=no_username")
+            }
+
             let mut places = Vec::new();
 
             if form.burgerlich {places.push("Burgerlich")};
@@ -88,17 +128,14 @@ fn vote(vote_form: Result<Form<FormInput>, FormError>, db_conn: State<DbConn>) -
         }
         Err(FormDataError::Io(_)) => {
             format!("Form input was invalid UTF-8.");
-            Redirect::to("/error")
+            Redirect::to("/error?reason=non_ascii")
         }
         Err(FormDataError::Malformed(f)) | Err(FormDataError::Parse(_, f)) => {
             format!("Invalid form input: {}", f);
-            Redirect::to("/error")
+            Redirect::to("/error?reason=invalid_form")
         }
     }
 }
-
-//static files
-//rocket::ignite().mount("/", StaticFiles::from("static"))
 
 #[get("/")]
 fn index() -> io::Result<NamedFile> {
@@ -116,7 +153,8 @@ fn rocket() -> Rocket {
     // Have Rocket manage the database pool.
     rocket::ignite()
         .manage(Mutex::new(conn))
-        .mount("/", routes![index, results, vote])
+        .mount("/", routes![index, results, vote, error])
+        .attach(Template::fairing())
 }
 
 fn main() {

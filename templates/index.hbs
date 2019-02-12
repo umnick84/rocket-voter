@@ -1,0 +1,23 @@
+{{#*inline "page"}}
+
+<h1>Lunch Vote</h1>
+
+<br />
+
+<div>
+    <form action="/vote" method="post" accept-charset="utf-8">
+        Username:<input type="text" name="username">
+        <br /><br />
+
+        {{#each items}}
+        <label>{{ this }}:
+            <input type="checkbox" name="{{ this }}">
+        </label><br />
+        {{/each}}
+
+        <input type="submit" value="Vote">
+    </form>
+</div>
+
+{{/inline}}
+{{~> (parent)~}}
