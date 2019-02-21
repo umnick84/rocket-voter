@@ -9,11 +9,14 @@
         Username:<input type="text" name="username">
         <br /><br />
 
-        {{#each items}}
-        <label>{{ this }}:
-            <input type="checkbox" name="{{ this }}">
-        </label><br />
-        {{/each}}
+        <table>
+            {{#each items}}
+                <tr>
+                <td>{{ this.1 }}: </td>
+                <td> <input type="checkbox" name="{{ this.0 }}"> </td>
+                </tr>
+            {{/each}}
+        <table>
 
         <input type="submit" value="Vote">
     </form>
