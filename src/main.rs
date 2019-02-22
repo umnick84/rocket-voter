@@ -56,7 +56,7 @@ fn init_database(conn: &Connection) {
     conn.execute("CREATE UNIQUE INDEX u_idx ON vote_results (place, username, date)", NO_PARAMS).expect("");
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 struct Vote {
     username: String,
     place: String,
@@ -64,8 +64,8 @@ struct Vote {
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 struct TemplateContext<'a> {
-    frequency: &'a str,
-    votes: &'a str,
+    frequency: Vec<(&'a str, i32)>,
+    votes: Vec<Vote>,
     // This key tells handlebars which template is the parent.
     parent: &'a str,
 }
@@ -106,16 +106,17 @@ fn results(db_conn: State<DbConn>) -> Template {
         }).unwrap()
         .map(|tv| tv.unwrap()).collect_vec();
 
-    let mut frequency: HashMap<_, _> = HashMap::new();
+    let mut frequency: HashMap<&str, i32> = HashMap::new();
     for word in &votes {
         *frequency.entry(word.place.as_str()).or_insert(0) += 1;
     }
     //sorting
-    let sorted_frequency = frequency.into_iter().sorted_by_key(|x| -x.1);
+    let mut vec = frequency.into_iter().collect_vec();
+    vec.sort_by_key(|x| -x.1);
 
     Template::render("results", &TemplateContext {
-        frequency: format!("{:#?}", sorted_frequency).as_str(),
-        votes: format!("{:#?}", votes).as_str(),
+        frequency: vec,
+        votes: votes.to_vec(),
         parent: "layout",
     })
 }

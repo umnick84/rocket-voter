@@ -6,12 +6,27 @@
 
 Vote results:
 <br />
-{{ frequency }}
+    <table>
+        {{#each frequency}}
+            <tr>
+            <td> {{ this.0 }} </td>
+            <td> {{ this.1 }} </td>
+            </tr>
+        {{/each}}
+    <table>
 
 <br /><br />
 Details:
 <br />
-{{ votes }}
+
+    <table>
+        {{#each votes}}
+            <tr>
+                <td> {{ this.username }} </td>
+                <td> {{ this.place }} </td>
+            </tr>
+        {{/each}}
+    <table>
 
 
 {{/inline}}
